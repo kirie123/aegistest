@@ -121,7 +121,8 @@ aegistest/
 │   └── report_generator.py    # 多格式报告生成（HTML / JSON / Markdown）
 └── examples/
     ├── basic_example.py         # 极简入门示例
-    └── advanced_example.py      # 进阶完整示例
+    ├── advanced_example.py      # 进阶完整示例
+    └── suite.yaml               # YAML 配置文件示例
 ```
 
 ## 核心概念
@@ -165,6 +166,42 @@ TestCase(
 )
 ```
 
+### 通过配置文件运行
+
+不用写 Python 代码，直接用 YAML/JSON 定义测试套件：
+
+```bash
+# 1. 生成示例配置
+aegistest init
+
+# 2. 运行（通过 --agent 指定 Agent 类）
+aegistest run suite.yaml --agent examples.advanced_example:MockCodingAgent
+
+# 3. 生成报告并保存基线
+aegistest run suite.yaml --agent examples.advanced_example:MockCodingAgent \
+  --report html json --save-baseline
+```
+
+配置文件中也可以定义 Agent：
+
+```yaml
+name: "My Suite"
+agent:
+  module: "my_agent"
+  class: "MyAgent"
+  kwargs:
+    model: "gpt-4"
+
+cases:
+  - id: func_001_hello
+    input: "你好"
+    expected_output_contains: ["你好"]
+    category: functional
+    priority: high
+```
+
+> **注意**：YAML 支持需要安装 `pip install pyyaml`。JSON 配置纯标准库即可。
+
 ### LLM-as-a-Judge
 
 接入外部 Judge，让大模型评判语义级别的任务完成度：
@@ -207,7 +244,7 @@ print(regression["improvements"]) # 进步的用例
 
 ## 完整示例
 
-参见 [`examples/basic_example.py`](examples/basic_example.py) 和 [`examples/advanced_example.py`](examples/advanced_example.py)。
+参见 [`examples/basic_example.py`](examples/basic_example.py)、[`examples/advanced_example.py`](examples/advanced_example.py) 和 [`examples/suite.yaml`](examples/suite.yaml)。
 
 运行完整示例：
 

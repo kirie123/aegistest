@@ -14,6 +14,7 @@ from .core.agent_interface import AgentInterface, AgentRunResult, AgentStep
 from .core.executor import AgentExecutor, ExecutionResult
 from .core.aegis import AegisTest
 from .reports.report_generator import ReportGenerator
+from .config_loader import load_config, load_suite, load_agent_spec
 
 __all__ = [
     "AegisTest",
@@ -28,4 +29,7 @@ __all__ = [
     "AgentExecutor",
     "ExecutionResult",
     "ReportGenerator",
+    "load_config",
+    "load_suite",
+    "load_agent_spec",
 ]
