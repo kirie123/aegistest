@@ -260,5 +260,42 @@ def main():
     print("=" * 70)
 
 
+def demo_with_llm_judge():
+    """演示如何使用内置 LLM Judge 进行语义级评估"""
+    import os
+    from aegistest import LLMJudge
+
+    print("\n" + "=" * 70)
+    print("Demo: LLM Judge 语义评估")
+    print("=" * 70)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("跳过 LLM Judge 演示：未设置 ANTHROPIC_API_KEY 环境变量")
+        return
+
+    agent = MockCodingAgent()
+    judge = LLMJudge(api_key=api_key, model="deepseek-v4-pro")
+
+    aegis = AegisTest(agent=agent, judge=judge)
+
+    suite = TestSuite(name="LLM Judge Demo", description="语义评估示例")
+    suite.add(TestCase(
+        id="func_001_code_generation",
+        input="写一个 Python 函数，计算斐波那契数列的第 n 项",
+        expected_behavior=[
+            "提供计算斐波那契数列的 Python 函数",
+            "函数接受一个整数参数 n",
+            "返回第 n 项的值",
+        ],
+        category=TestCategory.FUNCTIONAL,
+        priority=TestPriority.HIGH,
+        timeout=90,
+    ))
+
+    aegis.run_suite(suite)
+
+
 if __name__ == "__main__":
     main()
+    # demo_with_llm_judge()  # 取消注释以运行 LLM Judge 演示

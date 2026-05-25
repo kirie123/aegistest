@@ -17,6 +17,7 @@ from .reports.report_generator import ReportGenerator
 from .config_loader import load_config, load_suite, load_agent_spec
 from .workspace_manager import WorkspaceManager
 from .code_validator import CodeValidator
+from .judge import LLMJudge, BaseJudge, JudgeResult
 
 __all__ = [
     "AegisTest",
@@ -34,6 +35,9 @@ __all__ = [
     "ReportGenerator",
     "WorkspaceManager",
     "CodeValidator",
+    "LLMJudge",
+    "BaseJudge",
+    "JudgeResult",
     "load_config",
     "load_suite",
     "load_agent_spec",

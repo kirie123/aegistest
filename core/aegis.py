@@ -34,7 +34,8 @@ class AegisTest:
                  baseline_dir: str = "./baselines",
                  report_dir: str = "./reports",
                  workspace_dir: str = "./workspaces",
-                 judge=None):
+                 judge=None,
+                 auto_judge: bool = False):
         self.agent = agent
         self.executor = AgentExecutor(agent)
         self.trace_collector = TraceCollector(trace_dir)

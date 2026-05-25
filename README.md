@@ -202,20 +202,29 @@ cases:
 
 > **注意**：YAML 支持需要安装 `pip install pyyaml`。JSON 配置纯标准库即可。
 
-### LLM-as-a-Judge
+### LLM-as-a-Judge（内置）
 
-接入外部 Judge，让大模型评判语义级别的任务完成度：
+框架内置了 `LLMJudge`，支持 DeepSeek / OpenAI / Anthropic / Ollama，零额外依赖：
 
 ```python
-from aegistest import AegisTest
+from aegistest import AegisTest, LLMJudge
 
-aegis = AegisTest(
-    agent=agent,
-    judge=your_llm_judge_instance,  # 任何实现了 evaluate() 接口的对象
+judge = LLMJudge(
+    api_key="sk-xxx",
+    model="deepseek-v4-pro",  # 或 claude-sonnet-4, gpt-4 等
 )
+
+aegis = AegisTest(agent=agent, judge=judge)
 ```
 
-当 `TestCase` 设置了 `expected_behavior` 且提供了 `judge` 时，AegisTest 会自动调用 LLM Judge；否则回退到字符串匹配。
+当 `TestCase` 设置了 `expected_behavior` 且提供了 `judge` 时，AegisTest 会自动调用 LLM Judge 进行语义级评估；否则回退到字符串匹配。
+
+**适用场景对比：**
+
+| 评估方式 | 适用场景 | 示例 |
+|---|---|---|
+| 字符串匹配 | 确定性输出、工具调用结果 | `echo hello` 必须包含 `hello` |
+| **LLM Judge** | **开放式任务、语义理解、代码生成** | "分析项目架构"——不强制关键词，Judge 评判是否完成核心目标 |
 
 ### 报告格式切换
 
