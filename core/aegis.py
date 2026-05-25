@@ -1,4 +1,4 @@
-"""AegisTest 主入口 — 一键运行全部评测"""
+"""AegisTest 主入口 — 一键运行全部评测（支持四层评估体系）"""
 
 import time
 import json
@@ -15,15 +15,25 @@ from ..analyzers.failure_analyzer import FailureAnalyzer
 from ..checkers.safety_checker import SafetyChecker
 from ..regression.regression_tester import RegressionTester
 from ..reports.report_generator import ReportGenerator
+from ..workspace_manager import WorkspaceManager
+from ..code_validator import CodeValidator
 
 
 class AegisTest:
-    """AegisTest — Agent 评测主入口"""
+    """AegisTest — Agent 评测主入口
+
+    四层评估体系：
+    1. 输出层：字符串匹配 / LLM Judge
+    2. 行为层：tool_calls 序列检查
+    3. 代码层：语法、编译、测试通过（CodeValidator）
+    4. 状态层：文件系统、git 仓库最终状态（WorkspaceManager）
+    """
 
     def __init__(self, agent: AgentInterface,
                  trace_dir: str = "./traces",
                  baseline_dir: str = "./baselines",
                  report_dir: str = "./reports",
+                 workspace_dir: str = "./workspaces",
                  judge=None):
         self.agent = agent
         self.executor = AgentExecutor(agent)
@@ -33,18 +43,34 @@ class AegisTest:
         self.regression_tester = RegressionTester(baseline_dir)
         self.report_dir = Path(report_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
+        self.workspace_manager = WorkspaceManager(workspace_dir)
+        self.code_validator = CodeValidator()
         self.run_id = str(uuid.uuid4())[:8]
         self.results: List[ExecutionResult] = []
-        self.judge = judge  # LLM Judge（可选）
+        self.judge = judge
 
     def run_test(self, test_case: TestCase) -> ExecutionResult:
         """运行单个测试"""
+        first_input = test_case.first_input
+        input_preview = str(first_input)[:80] if first_input else ""
         print(f"\n{'='*60}")
         print(f"Test: {test_case.id} [{test_case.category.value}]")
-        print(f"Input: {test_case.input[:80]}...")
+        print(f"Input: {input_preview}...")
+        if test_case.is_multiturn:
+            print(f"Turns: {len(test_case.all_inputs)}")
+        if test_case.working_dir:
+            print(f"Working Dir: {test_case.working_dir}")
+        elif test_case.workspace_template:
+            print(f"Workspace Template: {test_case.workspace_template}")
         print(f"{'='*60}")
 
-        # 1. 开始 trace
+        # 1. 拍工作区快照（用于前后对比）
+        workspace = self._resolve_workspace(test_case)
+        before_snapshot = None
+        if workspace:
+            before_snapshot = self.workspace_manager.snapshot(workspace)
+
+        # 2. 开始 trace
         self.trace_collector.start_run(
             run_id=self.run_id,
             test_id=test_case.id,
@@ -52,20 +78,20 @@ class AegisTest:
             agent_version=self.agent.version,
         )
 
-        # 2. 执行
+        # 3. 执行
         start = time.time()
         result = self.executor.execute(test_case)
         elapsed = time.time() - start
 
-        # 3. 评估输出
+        # 4. 四层评估
         if result.success:
-            passed, reason = self._evaluate_output(result.agent_output, test_case)
+            passed, reason = self._evaluate_result(result, test_case, workspace, before_snapshot)
             result.success = passed
             if not result.success:
                 result.failure_category = "output_mismatch"
                 result.failure_reason = reason
 
-        # 4. 记录 trace steps + agent_output
+        # 5. 记录 trace steps + agent_output
         if result.agent_result:
             for s in result.agent_result.steps:
                 self.trace_collector.log_step(
@@ -77,7 +103,7 @@ class AegisTest:
                 )
         self.trace_collector.set_output(result.agent_output)
 
-        # 5. 安全检查
+        # 6. 安全检查
         if result.agent_result:
             trace_steps = [
                 {"step": s.step_number, "type": s.step_type,
@@ -90,22 +116,23 @@ class AegisTest:
                 "description": v.description, "evidence": v.evidence,
             } for v in violations]
 
-        # 6. 失败分析
+        # 7. 失败分析
         if not result.success:
             analysis = self.failure_analyzer.analyze(result.to_dict())
             result.failure_category = analysis.get("category", "unknown")
             result.failure_reason = analysis.get("reason", result.failure_reason)
 
-        # 7. 结束 trace
+        # 8. 结束 trace
         self.trace_collector.end_run(metadata={
             "success": result.success,
             "failure_category": result.failure_category,
             "safety_violations": len(result.safety_violations),
+            "workspace": str(workspace) if workspace else None,
         })
 
         self.results.append(result)
 
-        # 8. 打印结果
+        # 9. 打印结果
         status = "PASS" if result.success else "FAIL"
         safety_info = f" | Safety: {len(result.safety_violations)} violations" if result.safety_violations else ""
         print(f"\nResult: {status} ({result.latency_ms:.0f}ms, {result.steps_used} steps){safety_info}")
@@ -116,7 +143,143 @@ class AegisTest:
 
         return result
 
-    def run_suite(self, suite: TestSuite, 
+    def _resolve_workspace(self, test_case: TestCase) -> Optional[Path]:
+        """解析测试用例的工作区路径"""
+        if test_case.working_dir:
+            return Path(test_case.working_dir)
+        elif test_case.workspace_template:
+            return self.workspace_manager.create_sandbox(test_case.workspace_template)
+        return None
+
+    def _evaluate_result(
+        self,
+        result: ExecutionResult,
+        test_case: TestCase,
+        workspace: Optional[Path],
+        before_snapshot: Optional[Any],
+    ) -> tuple[bool, str]:
+        """四层评估体系"""
+
+        # ---- Layer 1: 输出层 ----
+        output_passed, output_reason = self._evaluate_output_layer(result, test_case)
+        if not output_passed:
+            return False, output_reason
+
+        # ---- Layer 2: 行为层（tool_calls 检查） ----
+        if test_case.expected_tool_calls:
+            behavior_passed, behavior_reason = self._evaluate_behavior_layer(result, test_case)
+            if not behavior_passed:
+                return False, behavior_reason
+
+        # ---- Layer 3: 代码层 ----
+        if test_case.code_assertions:
+            code_passed, code_reason = self._evaluate_code_layer(result, test_case, workspace)
+            if not code_passed:
+                return False, code_reason
+
+        # ---- Layer 4: 状态层 ----
+        if test_case.expected_final_state and workspace:
+            state_passed, state_reason = self._evaluate_state_layer(
+                result, test_case, workspace, before_snapshot
+            )
+            if not state_passed:
+                return False, state_reason
+
+        return True, "All evaluation layers passed"
+
+    def _evaluate_output_layer(self, result: ExecutionResult, test_case: TestCase) -> tuple[bool, str]:
+        """输出层评估：字符串匹配 / LLM Judge"""
+        output = result.agent_output
+
+        # 优先使用 LLM Judge
+        if self.judge is not None and test_case.expected_behavior:
+            print("  [LLM Judge] 正在评估...")
+            judge_result = self.judge.evaluate(
+                user_input=str(test_case.first_input),
+                expected_behavior=test_case.expected_behavior,
+                actual_output=output,
+            )
+            print(f"  [LLM Judge] {'PASS' if judge_result.passed else 'FAIL'} — {judge_result.reason}")
+            if not judge_result.passed:
+                return False, f"[LLM Judge] {judge_result.reason}"
+
+        # 字符串匹配
+        for expected in test_case.expected_output_contains:
+            if expected.lower() not in output.lower():
+                return False, f"Missing expected text: '{expected}'"
+
+        for forbidden in test_case.expected_not_contains:
+            if forbidden.lower() in output.lower():
+                return False, f"Found forbidden text: '{forbidden}'"
+
+        return True, "Output matched expected criteria"
+
+    def _evaluate_behavior_layer(self, result: ExecutionResult, test_case: TestCase) -> tuple[bool, str]:
+        """行为层评估：检查 tool_calls 序列"""
+        if not result.agent_result:
+            return True, "No agent result to check"
+
+        actual_tools = [tc.get("tool", "").lower() for tc in result.agent_result.tool_calls]
+        expected_tools = [tc.get("tool", "").lower() for tc in test_case.expected_tool_calls]
+
+        # 检查每个期望的工具是否都被调用
+        for expected in expected_tools:
+            if expected and expected not in actual_tools:
+                return False, f"Expected tool '{expected}' not called. Actual: {actual_tools}"
+
+        # 检查工具调用数量（如果严格匹配）
+        if len(expected_tools) > 0 and len(expected_tools) != len(actual_tools):
+            return False, f"Tool call count mismatch: expected {len(expected_tools)}, got {len(actual_tools)}"
+
+        return True, "Tool calls matched expected sequence"
+
+    def _evaluate_code_layer(
+        self,
+        result: ExecutionResult,
+        test_case: TestCase,
+        workspace: Optional[Path],
+    ) -> tuple[bool, str]:
+        """代码层评估：语法、编译、测试"""
+        assertions = test_case.code_assertions
+        project_dir = workspace or Path(".")
+
+        val_result = self.code_validator.validate_project(project_dir, assertions)
+        if not val_result.passed:
+            errors = "; ".join(val_result.errors)
+            return False, f"[Code Validation] {errors}"
+
+        return True, "Code validation passed"
+
+    def _evaluate_state_layer(
+        self,
+        result: ExecutionResult,
+        test_case: TestCase,
+        workspace: Path,
+        before_snapshot: Optional[Any],
+    ) -> tuple[bool, str]:
+        """状态层评估：文件系统、git 状态"""
+        expected = test_case.expected_final_state
+
+        # 文件树断言
+        if "files" in expected:
+            errors = self.workspace_manager.assert_file_tree(workspace, expected["files"])
+            if errors:
+                return False, f"[State] File tree assertion failed: {'; '.join(errors)}"
+
+        # git 状态断言
+        if "git" in expected:
+            errors = self.workspace_manager.assert_git_state(workspace, expected["git"])
+            if errors:
+                return False, f"[State] Git state assertion failed: {'; '.join(errors)}"
+
+        # 测试通过断言
+        if expected.get("tests_passed", False):
+            # 已经在代码层检查过，这里跳过
+            pass
+
+        return True, "State validation passed"
+
+    def run_suite(self, suite: TestSuite,
                   categories: Optional[List[str]] = None,
                   min_priority: Optional[str] = None) -> Dict[str, Any]:
         """运行整个测试集"""
@@ -181,35 +344,6 @@ class AegisTest:
 
         return summary
 
-    def _evaluate_output(self, output: str, test_case: TestCase) -> tuple[bool, str]:
-        """评估输出是否符合预期。返回 (是否通过, 理由)"""
-        # 优先使用 LLM Judge
-        if self.judge is not None and test_case.expected_behavior:
-            print("  [LLM Judge] 正在评估...")
-            result = self.judge.evaluate(
-                user_input=test_case.input,
-                expected_behavior=test_case.expected_behavior,
-                actual_output=output,
-            )
-            print(f"  [LLM Judge] {'PASS' if result.passed else 'FAIL'} — {result.reason}")
-            return result.passed, f"[LLM Judge] {result.reason}"
-
-        # 回退到字符串匹配
-        # 1. 检查必须包含的内容
-        for expected in test_case.expected_output_contains:
-            if expected.lower() not in output.lower():
-                return False, f"Missing expected text: '{expected}'"
-
-        # 2. 检查不应包含的内容
-        for forbidden in test_case.expected_not_contains:
-            if forbidden.lower() in output.lower():
-                return False, f"Found forbidden text: '{forbidden}'"
-
-        # 3. 检查工具调用
-        # (需要在 agent_result 中检查，这里简化)
-
-        return True, "Output matched expected criteria"
-
     def save_baseline(self, prompt_version: str = "1.0", model_version: str = "unknown"):
         """保存当前结果为基线"""
         results_dict = [r.to_dict() for r in self.results]
@@ -233,12 +367,7 @@ class AegisTest:
         return self.regression_tester.compare(new_results, baseline_run_id)
 
     def generate_report(self, output_path: Optional[str] = None, fmt: str = "html") -> str:
-        """生成报告
-
-        Args:
-            output_path: 输出路径（默认自动生成）
-            fmt: 报告格式，支持 html / json / markdown
-        """
+        """生成报告"""
         generator = ReportGenerator(str(self.report_dir))
         path = generator.generate(
             results=self.results,

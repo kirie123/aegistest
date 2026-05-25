@@ -9,12 +9,14 @@ AegisTest — Agent Evaluation & Guarded Inspection System
 
 __version__ = "0.1.0"
 
-from .core.test_case import TestCase, TestSuite, TestCategory, TestPriority, SafetyCheck
+from .core.test_case import TestCase, TestSuite, TestCategory, TestPriority, SafetyCheck, TaskInput
 from .core.agent_interface import AgentInterface, AgentRunResult, AgentStep
 from .core.executor import AgentExecutor, ExecutionResult
 from .core.aegis import AegisTest
 from .reports.report_generator import ReportGenerator
 from .config_loader import load_config, load_suite, load_agent_spec
+from .workspace_manager import WorkspaceManager
+from .code_validator import CodeValidator
 
 __all__ = [
     "AegisTest",
@@ -23,12 +25,15 @@ __all__ = [
     "TestCategory",
     "TestPriority",
     "SafetyCheck",
+    "TaskInput",
     "AgentInterface",
     "AgentRunResult",
     "AgentStep",
     "AgentExecutor",
     "ExecutionResult",
     "ReportGenerator",
+    "WorkspaceManager",
+    "CodeValidator",
     "load_config",
     "load_suite",
     "load_agent_spec",

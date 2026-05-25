@@ -126,3 +126,4 @@ dmypy.json
 traces/
 baselines/
 reports/
+workspaces/
