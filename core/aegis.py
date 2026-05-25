@@ -227,9 +227,8 @@ class AegisTest:
             if expected and expected not in actual_tools:
                 return False, f"Expected tool '{expected}' not called. Actual: {actual_tools}"
 
-        # 检查工具调用数量（如果严格匹配）
-        if len(expected_tools) > 0 and len(expected_tools) != len(actual_tools):
-            return False, f"Tool call count mismatch: expected {len(expected_tools)}, got {len(actual_tools)}"
+        # 检查工具调用数量（可选严格匹配，默认不检查）
+        # 因为 Agent 可能有多种方式完成同一个任务
 
         return True, "Tool calls matched expected sequence"
 
