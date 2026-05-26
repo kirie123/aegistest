@@ -18,6 +18,7 @@ from .config_loader import load_config, load_suite, load_agent_spec
 from .workspace_manager import WorkspaceManager
 from .code_validator import CodeValidator
 from .judge import LLMJudge, BaseJudge, JudgeResult
+from .analyzers.execution_analyzer import ExecutionAnalyzer
 
 __all__ = [
     "AegisTest",

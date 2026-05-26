@@ -17,6 +17,7 @@ from ..regression.regression_tester import RegressionTester
 from ..reports.report_generator import ReportGenerator
 from ..workspace_manager import WorkspaceManager
 from ..code_validator import CodeValidator
+from ..analyzers.execution_analyzer import ExecutionAnalyzer
 
 
 class AegisTest:
@@ -46,6 +47,7 @@ class AegisTest:
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_manager = WorkspaceManager(workspace_dir)
         self.code_validator = CodeValidator()
+        self.execution_analyzer = ExecutionAnalyzer()
         self.run_id = str(uuid.uuid4())[:8]
         self.results: List[ExecutionResult] = []
         self.judge = judge
@@ -117,13 +119,17 @@ class AegisTest:
                 "description": v.description, "evidence": v.evidence,
             } for v in violations]
 
-        # 7. 失败分析
+        # 7. 过程分析（Execution Insights）
+        insights = self.execution_analyzer.analyze(result)
+        result.execution_insights = insights.to_dict()
+
+        # 8. 失败分析
         if not result.success:
             analysis = self.failure_analyzer.analyze(result.to_dict())
             result.failure_category = analysis.get("category", "unknown")
             result.failure_reason = analysis.get("reason", result.failure_reason)
 
-        # 8. 结束 trace
+        # 9. 结束 trace
         self.trace_collector.end_run(metadata={
             "success": result.success,
             "failure_category": result.failure_category,

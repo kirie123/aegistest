@@ -32,6 +32,7 @@ class ExecutionResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     workspace_path: Optional[str] = None  # 测试使用的工作区路径
     turn_results: List[AgentRunResult] = field(default_factory=list)  # 多轮每轮结果
+    execution_insights: Optional[Dict[str, Any]] = None  # 过程分析指标
 
     def to_dict(self) -> dict:
         return {
