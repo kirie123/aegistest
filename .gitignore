@@ -125,5 +125,9 @@ dmypy.json
 # AegisTest runtime outputs
 traces/
 baselines/
-reports/
 workspaces/
+# Ignore generated reports but keep source code
+reports/*.html
+reports/*.json
+reports/*.md
+!reports/*.py
