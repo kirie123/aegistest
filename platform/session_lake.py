@@ -272,3 +272,8 @@ class SessionLake:
     def online_reviewer(self):
         """暴露 online_reviewer（惰性初始化）"""
         return self._get_online_reviewer()
+
+    @property
+    def offline_miner(self):
+        """暴露 offline_miner（惰性初始化）"""
+        return self._get_offline_miner()
