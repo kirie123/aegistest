@@ -36,9 +36,38 @@ class AegisTest:
                  report_dir: str = "./reports",
                  workspace_dir: str = "./workspaces",
                  judge=None,
-                 auto_judge: bool = False):
+                 auto_judge: bool = False,
+                 # --- Session 持久化（可选，向后兼容） ---
+                 session_dir: str = "./sessions",
+                 enable_session_storage: bool = False,
+                 # --- 新增：解耦的数据平台（推荐方式） ---
+                 session_lake=None):
         self.agent = agent
-        self.executor = AgentExecutor(agent)
+        self.run_id = str(uuid.uuid4())[:8]
+        self.results: List[ExecutionResult] = []
+        self.judge = judge
+
+        # --- SessionLake / Session Storage（可选） ---
+        self.session_lake = session_lake
+        self.enable_session_storage = enable_session_storage
+
+        if session_lake is not None:
+            # 使用外部传入的 SessionLake（推荐）
+            self.session_storage = session_lake.storage
+        elif enable_session_storage:
+            # 向后兼容：内部创建 SessionStorage（仅持久化，无进化/导出）
+            from ..session.session_storage import SessionStorage
+            self.session_storage = SessionStorage(session_dir)
+        else:
+            self.session_storage = None
+
+        self.executor = AgentExecutor(
+            agent,
+            session_storage=self.session_storage,
+            run_id=self.run_id,
+        )
+
+        # --- 原有组件（不变） ---
         self.trace_collector = TraceCollector(trace_dir)
         self.failure_analyzer = FailureAnalyzer()
         self.safety_checker = SafetyChecker()
@@ -48,9 +77,6 @@ class AegisTest:
         self.workspace_manager = WorkspaceManager(workspace_dir)
         self.code_validator = CodeValidator()
         self.execution_analyzer = ExecutionAnalyzer()
-        self.run_id = str(uuid.uuid4())[:8]
-        self.results: List[ExecutionResult] = []
-        self.judge = judge
 
     def run_test(self, test_case: TestCase) -> ExecutionResult:
         """运行单个测试"""
@@ -139,7 +165,38 @@ class AegisTest:
 
         self.results.append(result)
 
-        # 9. 打印结果
+        # 10. 质量标注写入 session（如果启用）
+        if self.session_storage and self.executor.session_id:
+            from ..session.quality_annotator import QualityAnnotator
+            annotation = QualityAnnotator.from_test_result(
+                entry_uuid="",
+                success=result.success,
+                judge_score=1.0 if result.success else 0.0,
+                failure_category=result.failure_category,
+                failure_reason=result.failure_reason,
+            )
+            from ..session.session_storage import SessionEntry
+            ann_entry = SessionEntry(
+                uuid=str(uuid.uuid4()),
+                type="quality_annotation",
+                content=annotation.to_dict(),
+                session_id=self.executor.session_id,
+            )
+            self.session_storage.append_entries("default", self.executor.session_id, [ann_entry])
+
+        # 11. 触发在线进化 review（通过 SessionLake，如果配置）
+        if self.session_lake is not None and self.executor.session_id:
+            session_file = self.session_storage.get_session_file("default", self.executor.session_id)
+            if session_file:
+                try:
+                    review_result = self.session_lake.review_session(str(session_file))
+                    result.metadata["evolution_review"] = review_result
+                    if review_result.get("executed"):
+                        print(f"  [Evolution] {len(review_result['executed'])} actions applied")
+                except Exception as e:
+                    print(f"  [Evolution] Review failed: {e}")
+
+        # 12. 打印结果
         status = "PASS" if result.success else "FAIL"
         safety_info = f" | Safety: {len(result.safety_violations)} violations" if result.safety_violations else ""
         print(f"\nResult: {status} ({result.latency_ms:.0f}ms, {result.steps_used} steps){safety_info}")
@@ -385,3 +442,5 @@ class AegisTest:
         )
         print(f"\nReport saved: {path}")
         return path
+
+

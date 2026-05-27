@@ -20,6 +20,12 @@ from .code_validator import CodeValidator
 from .judge import LLMJudge, BaseJudge, JudgeResult
 from .analyzers.execution_analyzer import ExecutionAnalyzer
 
+# 新增模块导入
+from .session import SessionStorage, SessionEntry, SessionLoader
+from .datapipeline import TraceConverter, QualityFilter, DatasetExporter
+from .evolution import SkillManager, MemoryManager, OnlineReviewer, OfflineMiner, Curator
+from .platform import SessionLake
+
 __all__ = [
     "AegisTest",
     "TestCase",
@@ -42,4 +48,17 @@ __all__ = [
     "load_config",
     "load_suite",
     "load_agent_spec",
+    # 新增导出
+    "SessionStorage",
+    "SessionEntry",
+    "SessionLoader",
+    "TraceConverter",
+    "QualityFilter",
+    "DatasetExporter",
+    "SkillManager",
+    "MemoryManager",
+    "OnlineReviewer",
+    "OfflineMiner",
+    "Curator",
+    "SessionLake",
 ]

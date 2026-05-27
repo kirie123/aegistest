@@ -77,3 +77,22 @@ class AgentInterface(ABC):
     def end_session(self) -> None:
         """结束会话，释放资源"""
         pass
+
+    # ---- 消息历史暴露（可选实现，用于 Session 持久化与自进化） ----
+
+    def get_message_history(self) -> List[Dict[str, Any]]:
+        """
+        获取当前会话的完整消息历史
+
+        返回标准格式列表，每个元素包含：
+            - role: "system" | "user" | "assistant" | "tool"
+            - content: str
+            - metadata: Dict (可选，如 tool_calls)
+
+        默认返回空列表。需要 Session 持久化或自进化的 Agent 应重写此方法。
+        """
+        return []
+
+    def get_session_metadata(self) -> Dict[str, Any]:
+        """获取当前会话元数据（可选实现）"""
+        return {}

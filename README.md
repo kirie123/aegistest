@@ -9,6 +9,8 @@
 
 AegisTest 是一个专为 LLM Agent 设计的测试框架，覆盖**用例定义 → 执行（超时控制）→ 双重评估（字符串匹配 + LLM Judge）→ 安全检测 → 失败分析 → Trace 持久化 → 回归对比 → 多格式报告**的完整评测闭环。
 
+此外，AegisTest 内置独立的 **SessionLake** 数据平台，让每一次 Agent 运行不仅是测试事件，更是数据生产事件——自动沉淀为训练数据、驱动 Skill 自进化。
+
 ## 特性
 
 - **零第三方依赖** — 纯 Python 标准库实现，开箱即用
@@ -18,6 +20,7 @@ AegisTest 是一个专为 LLM Agent 设计的测试框架，覆盖**用例定义
 - **回归测试** — 保存基线、对比版本迭代后的能力退化
 - **多格式报告** — HTML（可视化）、JSON（CI 解析）、Markdown（轻量文本）
 - **跨平台超时控制** — Windows / Linux / macOS 原生支持
+- **SessionLake 数据平台** — 会话持久化、训练数据导出、Skill/Memory 自进化（与测试框架解耦，可被生产 Agent 复用）
 
 ## 快速开始
 
@@ -109,19 +112,36 @@ aegistest/
 │   ├── agent_interface.py # Agent 抽象接口（必须实现）
 │   ├── executor.py        # 执行器（超时控制、结果封装）
 │   └── test_case.py       # TestCase / TestSuite 定义
+├── session/
+│   ├── session_storage.py     # JSONL 追加式会话存储
+│   ├── session_loader.py      # 会话链恢复与解析
+│   └── quality_annotator.py   # 质量标注
+├── datapipeline/
+│   ├── trace_converter.py     # trace → ChatML / ShareGPT / traces
+│   ├── quality_filter.py      # 质量筛选与去重
+│   └── dataset_exporter.py    # 训练数据导出
+├── evolution/
+│   ├── online_reviewer.py     # 单会话在线 review
+│   ├── offline_miner.py       # 跨会话模式挖掘
+│   ├── skill_manager.py       # Skill 文件系统管理
+│   ├── memory_manager.py      # Memory 持久化
+│   └── curator.py             # Skill 慢速维护
+├── platform/
+│   └── session_lake.py        # 数据平台：持久化 + 训练数据 + 自进化
 ├── analyzers/
 │   └── failure_analyzer.py    # 失败原因自动分类
 ├── checkers/
-│   └── safety_checker.py      # 安全检测（危险工具、Prompt Injection、数据泄露）
+│   └── safety_checker.py      # 安全检测
 ├── collectors/
 │   └── trace_collector.py     # Trace JSON 记录
 ├── regression/
 │   └── regression_tester.py   # 基线与回归对比
 ├── reports/
-│   └── report_generator.py    # 多格式报告生成（HTML / JSON / Markdown）
+│   └── report_generator.py    # 多格式报告生成
 └── examples/
     ├── basic_example.py         # 极简入门示例
     ├── advanced_example.py      # 进阶完整示例
+    ├── evolution_example.py     # SessionLake + 自进化示例
     └── suite.yaml               # YAML 配置文件示例
 ```
 
@@ -251,15 +271,67 @@ print(regression["regressions"])  # 退化的用例
 print(regression["improvements"]) # 进步的用例
 ```
 
+## SessionLake：Agent 数据平台（可选）
+
+SessionLake 是与 AegisTest **解耦**的独立数据平台，可被测试框架或生产 Agent 直接使用。
+
+### 核心能力
+
+| 能力 | 说明 |
+|------|------|
+| **会话持久化** | 追加式 JSONL，UUID + parent_uuid 链式结构 |
+| **训练数据导出** | 支持 ChatML / ShareGPT / traces / DPO pairs |
+| **质量筛选** | 按 judge score / success / 去重筛选 |
+| **自进化引擎** | Online Review（单会话）+ Offline Mining（跨会话）+ Curator（慢速维护）|
+
+### 使用方式
+
+```python
+from aegistest import AegisTest, SessionLake
+
+# 1. 创建独立的数据平台
+lake = SessionLake(
+    session_dir="./sessions",
+    skill_dir="~/.aegistest/skills",
+    enable_evolution=True,
+)
+
+# 2. AegisTest 只做测试，通过组合关联 lake
+aegis = AegisTest(agent=MyAgent(), session_lake=lake)
+aegis.run_suite(suite)
+
+# 3. 数据导出由 lake 负责
+lake.export_training_data("train.json", output_format="chatml")
+lake.export_dpo_pairs("dpo.json")
+
+# 4. 进化维护由 lake 负责
+lake.run_evolution_maintenance()
+```
+
+### 生产 Agent 直接使用
+
+```python
+lake = SessionLake(session_dir="./prod_sessions", enable_evolution=True)
+
+# Agent 运行后，直接写入 lake
+lake.storage.start_session(session_id, run_id)
+lake.storage.append_entries(project, session_id, entries)
+
+# 触发 review
+lake.review_session(session_file)
+```
+
 ## 完整示例
 
-参见 [`examples/basic_example.py`](examples/basic_example.py)、[`examples/advanced_example.py`](examples/advanced_example.py) 和 [`examples/suite.yaml`](examples/suite.yaml)。
+参见 [`examples/basic_example.py`](examples/basic_example.py)、[`examples/advanced_example.py`](examples/advanced_example.py)、[`examples/evolution_example.py`](examples/evolution_example.py) 和 [`examples/suite.yaml`](examples/suite.yaml)。
 
 运行完整示例：
 
 ```bash
 python examples/basic_example.py
 python examples/advanced_example.py
+python examples/evolution_example.py
+python examples/test_session_lake.py   # SessionLake 功能测试
 ```
 
 ## 设计哲学
@@ -268,6 +340,7 @@ python examples/advanced_example.py
 2. **接口优先** — 通过 `AgentInterface` 解耦框架与具体 Agent 实现
 3. **可扩展** — Judge、报告格式、安全检查规则均可插拔替换
 4. **生产就绪** — 超时控制、Trace 持久化、回归对比，覆盖从开发到 CI 的全链路
+5. **架构解耦** — AegisTest 专注评测，SessionLake 专注数据与进化，两者可独立使用
 
 ## License
 

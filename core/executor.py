@@ -84,10 +84,15 @@ def time_limit(seconds: int):
 class AgentExecutor:
     """Agent 执行器"""
 
-    def __init__(self, agent: AgentInterface, max_steps: int = 30):
+    def __init__(self, agent: AgentInterface, max_steps: int = 30,
+                 session_storage=None, run_id: str = ""):
         self.agent = agent
         self.max_steps = max_steps
         self.workspace_manager = WorkspaceManager()
+        self.session_storage = session_storage
+        self.run_id = run_id
+        self.session_id: Optional[str] = None
+        self._last_entry_uuid: Optional[str] = None
 
     def _prepare_workspace(self, test_case: TestCase) -> Optional[Path]:
         """准备测试工作区"""
@@ -104,9 +109,32 @@ class AgentExecutor:
 
     def execute(self, test_case: TestCase) -> ExecutionResult:
         """执行单个测试用例（支持单轮和多轮）"""
+        import uuid as uuid_mod
         start_time = time.time()
         workspace = self._prepare_workspace(test_case)
         turn_results: List[AgentRunResult] = []
+
+        # --- Session 记录初始化 ---
+        session_started = False
+        self._last_entry_uuid = None
+        if self.session_storage is not None:
+            self.session_id = str(uuid_mod.uuid4())
+            header_path = self.session_storage.start_session(
+                session_id=self.session_id,
+                run_id=self.run_id,
+                test_id=test_case.id,
+                metadata={
+                    "agent_name": self.agent.name,
+                    "agent_version": self.agent.version,
+                    "test_input": str(test_case.first_input),
+                },
+            )
+            # 读取 header uuid 作为 chain 起点
+            # start_session 写入的 header 的 uuid 被记录在文件中，
+            # 但我们需要解析出来。简化处理：不将 header 纳入消息链。
+            # 记录 user input
+            self._log_session_entry("user", str(test_case.first_input))
+            session_started = True
 
         try:
             with time_limit(test_case.timeout):
@@ -117,7 +145,7 @@ class AgentExecutor:
                 turn_results = result.metadata.get("turn_results", [result])
         except TimeoutError:
             self._cleanup_workspace(test_case, workspace)
-            return ExecutionResult(
+            exc_result = ExecutionResult(
                 test_id=test_case.id,
                 test_input=str(test_case.first_input),
                 success=False,
@@ -126,9 +154,12 @@ class AgentExecutor:
                 latency_ms=(time.time() - start_time) * 1000,
                 workspace_path=str(workspace) if workspace else None,
             )
+            if session_started:
+                self._finalize_session(exc_result)
+            return exc_result
         except Exception as e:
             self._cleanup_workspace(test_case, workspace)
-            return ExecutionResult(
+            exc_result = ExecutionResult(
                 test_id=test_case.id,
                 test_input=str(test_case.first_input),
                 success=False,
@@ -137,6 +168,9 @@ class AgentExecutor:
                 latency_ms=(time.time() - start_time) * 1000,
                 workspace_path=str(workspace) if workspace else None,
             )
+            if session_started:
+                self._finalize_session(exc_result)
+            return exc_result
 
         elapsed_ms = (time.time() - start_time) * 1000
 
@@ -153,7 +187,7 @@ class AgentExecutor:
 
         self._cleanup_workspace(test_case, workspace)
 
-        return ExecutionResult(
+        exec_result = ExecutionResult(
             test_id=test_case.id,
             test_input=str(test_case.first_input),
             success=True,
@@ -167,6 +201,65 @@ class AgentExecutor:
             workspace_path=str(workspace) if workspace else None,
             turn_results=turn_results,
         )
+
+        if session_started:
+            self._finalize_session(exec_result, agent_result=result)
+
+        return exec_result
+
+    def _log_session_entry(self, role: str, content: Any,
+                           metadata: Optional[Dict[str, Any]] = None) -> None:
+        """记录单条 session entry，自动维护 parent_uuid 链"""
+        if self.session_storage is None or self.session_id is None:
+            return
+        from ..session.session_storage import SessionEntry
+        entry_uuid = str(__import__('uuid').uuid4())
+        entry = SessionEntry(
+            uuid=entry_uuid,
+            type=role,
+            content=content,
+            parent_uuid=self._last_entry_uuid,
+            session_id=self.session_id,
+            metadata=metadata or {},
+        )
+        self.session_storage.append_entries("default", self.session_id, [entry])
+        self._last_entry_uuid = entry_uuid
+
+    def _finalize_session(self, result: ExecutionResult,
+                          agent_result: Optional[AgentRunResult] = None) -> None:
+        """结束 session 记录，写入 footer 和质量标注"""
+        if self.session_storage is None or self.session_id is None:
+            return
+
+        # 记录 assistant 输出
+        if agent_result:
+            self._log_session_entry(
+                "assistant",
+                agent_result.final_output,
+                metadata={
+                    "tool_calls": agent_result.tool_calls,
+                    "has_tool_call": bool(agent_result.tool_calls),
+                },
+            )
+
+        # 写入 footer
+        from ..session.session_storage import SessionEntry
+        footer_uuid = str(__import__('uuid').uuid4())
+        footer = SessionEntry(
+            uuid=footer_uuid,
+            type="session_footer",
+            content={
+                "success": result.success,
+                "failure_category": result.failure_category,
+                "failure_reason": result.failure_reason,
+                "latency_ms": result.latency_ms,
+                "steps_used": result.steps_used,
+            },
+            parent_uuid=self._last_entry_uuid,
+            session_id=self.session_id,
+        )
+        self.session_storage.append_entries("default", self.session_id, [footer])
+        self._last_entry_uuid = footer_uuid
 
     def _execute_single(self, test_case: TestCase, workspace: Optional[Path]) -> AgentRunResult:
         """执行单轮测试"""
