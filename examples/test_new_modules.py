@@ -236,7 +236,7 @@ def test_curator():
         skill_mgr.upsert("old_skill", "content", metadata={"updated_at": "2020-01-01T00:00:00"})
 
         curator = Curator(skill_mgr, stale_threshold_days=1, archive_threshold_days=30)
-        result = curator.run_maintenance()
+        result = curator.run_maintenance(synchronous=True)
 
         assert result["checked"] >= 1
         print(f"  Checked: {result['checked']}, Archived: {result['archived']}")

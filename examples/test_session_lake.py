@@ -222,6 +222,9 @@ def test_session_lake_maintenance():
         # 创建旧 skill（模拟 2 年前更新）
         lake.skill_manager.upsert("old_legacy_skill", "This is outdated",
             metadata={"updated_at": "2022-01-01T00:00:00"})
+        # Reset activity timestamps so curator sees it as truly old
+        lake.skill_manager._set_record("old_legacy_skill",
+            last_patched_at=None, last_used_at=None, last_viewed_at=None)
 
         # 创建多个 session：2 成功 + 2 失败，带 tool_call
         for i in range(4):
@@ -242,18 +245,21 @@ def test_session_lake_maintenance():
             ])
 
         result = lake.run_evolution_maintenance()
+        # Wait for any async curator threads to finish before temp dir cleanup
+        import time
+        time.sleep(0.5)
 
         # --- 验证 Curator 归档 ---
         curator_result = result["curator"]
         assert curator_result["checked"] >= 2, f"Expected >=2 skills checked, got {curator_result['checked']}"
 
         # 验证物理文件：旧 skill 应该被移动到 .archive/
-        archive_path = os.path.join(skill_dir, ".archive", "old_legacy_skill", "prompt.md")
+        archive_path = os.path.join(skill_dir, ".archive", "old_legacy_skill", "SKILL.md")
         assert os.path.exists(archive_path), f"Archived skill file should exist at {archive_path}"
         print(f"  [OK] Curator archived 'old_legacy_skill' to .archive/")
 
         # 活跃 skill 应该仍在原处
-        active_path = os.path.join(skill_dir, "active_skill", "prompt.md")
+        active_path = os.path.join(skill_dir, "active_skill", "SKILL.md")
         assert os.path.exists(active_path), "Active skill should NOT be archived"
         print(f"  [OK] Curator kept 'active_skill' in place")
 
