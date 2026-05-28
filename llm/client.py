@@ -1,11 +1,20 @@
-"""LLM Client — standard-library only, supports DeepSeek (OpenAI-compatible)."""
+"""LLM Clients — standard-library only, supports OpenAI and Anthropic protocols.
+
+Usage:
+    # OpenAI-compatible (DeepSeek, OpenAI, vLLM, etc.)
+    client = OpenAIClient(api_key="sk-xxx", base_url="https://api.deepseek.com", model="deepseek-chat")
+
+    # Anthropic (Claude)
+    client = AnthropicClient(api_key="sk-ant-xxx", model="claude-3-sonnet")
+
+    # Mock (testing)
+    client = MockLLMClient(responses=['{"action":"skill_create",...}'])
+"""
 
 import json
 import os
-import re
 import ssl
 import urllib.request
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -45,66 +54,35 @@ class MockLLMClient(LLMClient):
         return '[]'
 
 
-class DeepSeekClient(LLMClient):
+class OpenAIClient(LLMClient):
     """
-    DeepSeek API client (OpenAI-compatible).
+    Generic OpenAI-compatible API client.
 
-    Reads config from C:\\Users\\Administrator\\.aiko\\settings.json by default,
-    or falls back to environment variables.
+    Works with any provider that speaks the OpenAI chat.completions protocol:
+    OpenAI, DeepSeek, Azure OpenAI, vLLM, Ollama (with /v1), etc.
     """
-
-    DEFAULT_CONFIG_PATH = r"C:\Users\Administrator\.aiko\settings.json"
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        config_path: Optional[str] = None,
+        api_key: str,
+        base_url: str = "https://api.openai.com",
+        model: str = "gpt-4",
         timeout: float = 120.0,
     ):
+        if not api_key:
+            raise ValueError("api_key is required")
+        self.api_key = api_key
+        self.model = model
         self._timeout = timeout
         self._ctx = ssl.create_default_context()
 
-        # Resolve credentials
-        cfg = self._load_config(config_path or self.DEFAULT_CONFIG_PATH)
-
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY") or cfg.get("api_key", "")
-        self.base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL") or cfg.get("base_url", "https://api.deepseek.com")
-        self.model = model or os.environ.get("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat")
-
-        # Ensure base_url has no trailing slash and points to chat completions endpoint
-        self.base_url = self.base_url.rstrip("/")
-        # DeepSeek's OpenAI-compatible endpoint is /v1; /anthropic is for Claude-format
-        # We need OpenAI format for tool_calls, so strip /anthropic and use /v1
-        if "/anthropic" in self.base_url:
-            self.base_url = self.base_url.replace("/anthropic", "")
-        if not self.base_url.endswith("/v1"):
-            self._api_base = f"{self.base_url}/v1"
+        base_url = base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            self._api_base = f"{base_url}/v1"
         else:
-            self._api_base = self.base_url
-
-    def _load_config(self, path: str) -> Dict[str, str]:
-        p = Path(path)
-        if not p.exists():
-            return {}
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return {}
-
-        cfg: Dict[str, str] = {}
-        if isinstance(data, dict):
-            cfg["model"] = data.get("model", "")
-            api = data.get("api", {})
-            if isinstance(api, dict):
-                cfg["base_url"] = api.get("baseUrl", "")
-                cfg["api_key"] = api.get("apiKey", "")
-        return cfg
+            self._api_base = base_url
 
     def complete(self, prompt: str) -> str:
-        """Single-turn completion via chat API."""
         result = self.chat([{"role": "user", "content": prompt}])
         return result.get("content", "")
 
@@ -115,13 +93,6 @@ class DeepSeekClient(LLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> Dict[str, Any]:
-        """
-        Call chat completions API.
-
-        Returns dict with:
-          - content: assistant text content
-          - tool_calls: list of {"id", "type", "function": {"name", "arguments"}}
-        """
         url = f"{self._api_base}/chat/completions"
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -133,6 +104,9 @@ class DeepSeekClient(LLMClient):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
+        return self._call_api(url, payload)
+
+    def _call_api(self, url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             url,
@@ -149,17 +123,14 @@ class DeepSeekClient(LLMClient):
                 body = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"DeepSeek API error {e.code}: {error_body}") from e
+            raise RuntimeError(f"OpenAI API error {e.code}: {error_body}") from e
         except Exception as e:
-            raise RuntimeError(f"DeepSeek API request failed: {e}") from e
+            raise RuntimeError(f"OpenAI API request failed: {e}") from e
 
         choice = body.get("choices", [{}])[0]
         message = choice.get("message", {})
-
-        # Extract text content
         content = message.get("content") or ""
 
-        # Extract tool_calls
         raw_tool_calls = message.get("tool_calls", [])
         tool_calls: List[Dict[str, Any]] = []
         for tc in raw_tool_calls:
@@ -177,6 +148,132 @@ class DeepSeekClient(LLMClient):
 
         return {
             "content": content,
+            "tool_calls": tool_calls,
+            "model": body.get("model", ""),
+            "usage": body.get("usage", {}),
+        }
+
+
+class AnthropicClient(LLMClient):
+    """
+    Anthropic Claude API client.
+
+    Uses the Messages API (not the legacy Text Completions API).
+    Tool use is supported via the native Anthropic tool schema.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://api.anthropic.com",
+        model: str = "claude-3-sonnet-20240229",
+        timeout: float = 120.0,
+    ):
+        if not api_key:
+            raise ValueError("api_key is required")
+        self.api_key = api_key
+        self.model = model
+        self._timeout = timeout
+        self._ctx = ssl.create_default_context()
+
+        base_url = base_url.rstrip("/")
+        self._api_base = base_url
+
+    def complete(self, prompt: str) -> str:
+        result = self.chat([{"role": "user", "content": prompt}])
+        return result.get("content", "")
+
+    def chat(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict]] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> Dict[str, Any]:
+        url = f"{self._api_base}/v1/messages"
+
+        # Anthropic uses a different messages format
+        anthropic_messages = []
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role == "system":
+                # Anthropic puts system prompt in a top-level field
+                continue
+            anthropic_messages.append({"role": role, "content": content})
+
+        # Extract system prompt from messages
+        system_prompt = ""
+        for m in messages:
+            if m.get("role") == "system":
+                system_prompt = m.get("content", "")
+                break
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": anthropic_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        if tools:
+            # Convert OpenAI tool format to Anthropic format
+            anthropic_tools = []
+            for t in tools:
+                if not isinstance(t, dict):
+                    continue
+                fn = t.get("function", {})
+                anthropic_tools.append({
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters", {}),
+                })
+            payload["tools"] = anthropic_tools
+
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout, context=self._ctx) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Anthropic API error {e.code}: {error_body}") from e
+        except Exception as e:
+            raise RuntimeError(f"Anthropic API request failed: {e}") from e
+
+        # Parse Anthropic response format
+        content_blocks = body.get("content", [])
+        text_content = ""
+        tool_calls: List[Dict[str, Any]] = []
+
+        for block in content_blocks:
+            btype = block.get("type", "")
+            if btype == "text":
+                text_content += block.get("text", "")
+            elif btype == "tool_use":
+                tool_calls.append({
+                    "id": block.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(block.get("input", {})),
+                    },
+                })
+
+        return {
+            "content": text_content,
             "tool_calls": tool_calls,
             "model": body.get("model", ""),
             "usage": body.get("usage", {}),

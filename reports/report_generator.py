@@ -28,16 +28,6 @@ class ReportGenerator:
         output_path: Optional[str] = None,
         fmt: str = "html",
     ) -> str:
-        """生成报告
-
-        Args:
-            results: ExecutionResult 列表
-            run_id: 本次运行 ID
-            agent_name: Agent 名称
-            agent_version: Agent 版本
-            output_path: 输出路径（默认自动生成）
-            fmt: 格式，支持 html / json / markdown
-        """
         if fmt == "html":
             return self._generate_html(results, run_id, agent_name, agent_version, output_path)
         elif fmt == "json":
@@ -55,7 +45,6 @@ class ReportGenerator:
         agent_version: str,
         output_path: Optional[str] = None,
     ) -> str:
-        """生成交互式 HTML 报告"""
         if output_path is None:
             output_path = self.report_dir / f"report_{run_id}.html"
         else:
@@ -66,7 +55,6 @@ class ReportGenerator:
         safety_issues = sum(len(r.safety_violations) for r in results)
         pass_rate = (passed / len(results) * 100) if results else 0
 
-        # 失败分类统计
         failure_cats: Dict[str, int] = {}
         for r in results:
             if not r.success and r.failure_category:
@@ -80,27 +68,33 @@ class ReportGenerator:
     <title>AegisTest Report - {run_id}</title>
     <style>
         :root {{
-            --success: #22c55e;
-            --success-light: #dcfce7;
-            --fail: #ef4444;
-            --fail-light: #fef2f2;
-            --warning: #f59e0b;
-            --warning-light: #fffbeb;
-            --info: #3b82f6;
-            --info-light: #eff6ff;
+            --success: #059669;
+            --success-light: #d1fae5;
+            --fail: #dc2626;
+            --fail-light: #fee2e2;
+            --warning: #d97706;
+            --warning-light: #fef3c7;
+            --info: #2563eb;
+            --info-light: #dbeafe;
             --neutral: #6b7280;
-            --bg: #f8fafc;
+            --bg: #f3f4f6;
             --card: #ffffff;
-            --border: #e2e8f0;
-            --text: #1e293b;
-            --text-secondary: #64748b;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-secondary: #4b5563;
+            --text-muted: #9ca3af;
+            --code-bg: #f8fafc;
+            --code-text: #1e293b;
+            --dark-bg: #0f172a;
+            --dark-text: #f1f5f9;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.6;
+            font-size: 14px;
         }}
         .container {{ max-width: 1400px; margin: 0 auto; padding: 24px; }}
 
@@ -109,108 +103,113 @@ class ReportGenerator:
             background: var(--card);
             border-radius: 12px;
             padding: 24px 28px;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
             border: 1px solid var(--border);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
         }}
-        .header h1 {{ font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }}
-        .header-meta {{ color: var(--text-secondary); font-size: 0.875rem; }}
-        .header-meta span {{ margin-right: 16px; }}
+        .header h1 {{ font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }}
+        .header-meta {{ color: var(--text-secondary); font-size: 0.8125rem; display: flex; flex-wrap: wrap; gap: 16px; }}
+        .header-meta span {{ display: inline-flex; align-items: center; gap: 4px; }}
+        .header-meta code {{
+            background: var(--code-bg); color: var(--code-text);
+            padding: 1px 5px; border-radius: 4px; font-size: 0.75rem;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }}
 
         /* Summary Cards */
         .summary-grid {{
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 14px;
+            margin-bottom: 20px;
         }}
         .summary-card {{
             background: var(--card);
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 10px;
+            padding: 18px 16px;
             border: 1px solid var(--border);
             text-align: center;
-            transition: transform 0.15s;
+            transition: transform 0.15s, box-shadow 0.15s;
         }}
-        .summary-card:hover {{ transform: translateY(-2px); }}
-        .summary-card .number {{ font-size: 2rem; font-weight: 700; line-height: 1; margin-bottom: 6px; }}
-        .summary-card .label {{ font-size: 0.8125rem; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }}
+        .summary-card:hover {{ transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }}
+        .summary-card .number {{ font-size: 1.875rem; font-weight: 700; line-height: 1; margin-bottom: 6px; }}
+        .summary-card .label {{ font-size: 0.6875rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }}
         .summary-card.total .number {{ color: var(--info); }}
         .summary-card.pass .number {{ color: var(--success); }}
         .summary-card.fail .number {{ color: var(--fail); }}
         .summary-card.safety .number {{ color: var(--warning); }}
 
-        /* Pass Rate Bar */
+        /* Pass Rate */
         .pass-rate {{
             background: var(--card);
-            border-radius: 12px;
-            padding: 20px 28px;
+            border-radius: 10px;
+            padding: 18px 24px;
             border: 1px solid var(--border);
-            margin-bottom: 24px;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
-            gap: 24px;
+            gap: 20px;
         }}
         .pass-rate-chart {{
             position: relative;
-            width: 80px; height: 80px; flex-shrink: 0;
+            width: 72px; height: 72px; flex-shrink: 0;
         }}
         .pass-rate-chart svg {{ transform: rotate(-90deg); }}
         .pass-rate-chart .pct {{
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 1.1rem; font-weight: 700; color: var(--text);
+            font-size: 1rem; font-weight: 700; color: var(--text);
         }}
         .pass-rate-info {{ flex: 1; }}
-        .pass-rate-info .title {{ font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 4px; }}
+        .pass-rate-info .title {{ font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }}
         .pass-rate-bar {{
-            height: 8px; background: var(--fail-light);
-            border-radius: 4px; overflow: hidden; margin-bottom: 6px;
+            height: 6px; background: #e5e7eb;
+            border-radius: 3px; overflow: hidden; margin-bottom: 6px;
         }}
         .pass-rate-bar-fill {{
-            height: 100%; background: linear-gradient(90deg, var(--success), #4ade80);
-            border-radius: 4px; transition: width 0.5s ease;
+            height: 100%; background: linear-gradient(90deg, var(--success), #34d399);
+            border-radius: 3px; transition: width 0.5s ease;
         }}
-        .pass-rate-info .detail {{ font-size: 0.8125rem; color: var(--text-secondary); }}
+        .pass-rate-info .detail {{ font-size: 0.75rem; color: var(--text-muted); }}
 
         /* Failure Distribution */
         .failure-dist {{
             background: var(--card);
-            border-radius: 12px;
-            padding: 20px 28px;
+            border-radius: 10px;
+            padding: 18px 24px;
             border: 1px solid var(--border);
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }}
-        .failure-dist h2 {{ font-size: 1rem; font-weight: 600; margin-bottom: 12px; }}
+        .failure-dist h2 {{ font-size: 0.9375rem; font-weight: 600; margin-bottom: 12px; color: var(--text); }}
         .failure-tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
         .failure-tag {{
             display: inline-flex; align-items: center; gap: 6px;
-            padding: 6px 12px; border-radius: 20px; font-size: 0.8125rem; font-weight: 500;
+            padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
             background: var(--fail-light); color: var(--fail); border: 1px solid #fecaca;
         }}
         .failure-tag .count {{
             background: var(--fail); color: white; border-radius: 10px;
-            padding: 0 6px; font-size: 0.6875rem; font-weight: 700; line-height: 16px;
+            padding: 0 6px; font-size: 0.625rem; font-weight: 700; line-height: 16px;
         }}
 
         /* Test List */
         .test-list {{
             background: var(--card);
-            border-radius: 12px;
+            border-radius: 10px;
             border: 1px solid var(--border);
             overflow: hidden;
         }}
         .test-list-header {{
             display: grid;
-            grid-template-columns: 48px 2fr 1fr 100px 80px 80px 100px;
+            grid-template-columns: 44px 2fr 1fr 100px 72px 72px 80px;
             gap: 8px;
-            padding: 12px 20px;
-            background: #f1f5f9;
-            font-size: 0.6875rem;
+            padding: 10px 18px;
+            background: #f9fafb;
+            font-size: 0.625rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
             border-bottom: 1px solid var(--border);
         }}
 
@@ -219,44 +218,44 @@ class ReportGenerator:
         .test-row:last-child {{ border-bottom: none; }}
         .test-summary {{
             display: grid;
-            grid-template-columns: 48px 2fr 1fr 100px 80px 80px 100px;
+            grid-template-columns: 44px 2fr 1fr 100px 72px 72px 80px;
             gap: 8px;
-            padding: 14px 20px;
+            padding: 12px 18px;
             align-items: center;
             cursor: pointer;
             transition: background 0.1s;
             user-select: none;
         }}
-        .test-summary:hover {{ background: #f8fafc; }}
-        .test-row.expanded .test-summary {{ background: #f8fafc; }}
+        .test-summary:hover {{ background: #f9fafb; }}
+        .test-row.expanded .test-summary {{ background: #f9fafb; }}
 
         .status-icon {{
-            width: 28px; height: 28px; border-radius: 50%;
+            width: 26px; height: 26px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 0.875rem; font-weight: 700;
+            font-size: 0.8125rem; font-weight: 700;
         }}
         .status-icon.pass {{ background: var(--success-light); color: var(--success); }}
         .status-icon.fail {{ background: var(--fail-light); color: var(--fail); }}
 
-        .test-id {{ font-weight: 600; font-size: 0.9375rem; }}
-        .test-category {{ font-size: 0.8125rem; color: var(--text-secondary); }}
-        .test-metric {{ font-size: 0.8125rem; color: var(--text-secondary); text-align: center; }}
+        .test-id {{ font-weight: 600; font-size: 0.875rem; color: var(--text); }}
+        .test-category {{ font-size: 0.75rem; color: var(--text-secondary); margin-top: 1px; }}
+        .test-metric {{ font-size: 0.75rem; color: var(--text-muted); text-align: center; }}
         .test-metric .value {{ font-weight: 600; color: var(--text); }}
         .safety-pill {{
-            display: inline-block; padding: 2px 8px; border-radius: 10px;
-            font-size: 0.6875rem; font-weight: 600;
+            display: inline-block; padding: 1px 7px; border-radius: 10px;
+            font-size: 0.625rem; font-weight: 600;
             background: var(--warning-light); color: var(--warning);
         }}
         .expand-icon {{
-            text-align: center; color: var(--text-secondary);
-            transition: transform 0.2s; font-size: 0.75rem;
+            text-align: center; color: var(--text-muted);
+            transition: transform 0.2s; font-size: 0.6875rem;
         }}
         .test-row.expanded .expand-icon {{ transform: rotate(180deg); }}
 
         /* Test Detail Panel */
         .test-detail {{
             display: none;
-            padding: 0 20px 20px;
+            padding: 0 18px 18px;
             animation: fadeIn 0.2s ease;
         }}
         .test-row.expanded .test-detail {{ display: block; }}
@@ -264,57 +263,78 @@ class ReportGenerator:
 
         .detail-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-            margin-bottom: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
         }}
         .detail-card {{
-            background: var(--bg); border-radius: 8px; padding: 14px 16px;
+            background: #f9fafb; border-radius: 8px; padding: 12px 14px;
             border: 1px solid var(--border);
         }}
-        .detail-card .label {{ font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }}
-        .detail-card .value {{ font-size: 0.9375rem; font-weight: 600; color: var(--text); }}
+        .detail-card .label {{ font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); font-weight: 600; margin-bottom: 3px; }}
+        .detail-card .value {{ font-size: 0.875rem; font-weight: 600; color: var(--text); }}
         .detail-card .value.error {{ color: var(--fail); }}
         .detail-card .value.ok {{ color: var(--success); }}
 
         /* Section Titles */
         .section-title {{
-            font-size: 0.8125rem; font-weight: 600; text-transform: uppercase;
-            letter-spacing: 0.5px; color: var(--text-secondary);
-            margin: 20px 0 10px; padding-bottom: 6px;
+            font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.6px; color: var(--text-muted);
+            margin: 16px 0 8px; padding-bottom: 5px;
             border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 6px;
         }}
 
-        /* Code Blocks */
+        /* ====== CRITICAL FIX: Agent Output readability ====== */
+        /* Light-theme code block for maximum readability */
         pre {{
-            background: #0f172a; color: #e2e8f0; padding: 16px;
-            border-radius: 8px; overflow-x: auto; font-size: 0.8125rem;
-            line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;
-            max-height: 400px; overflow-y: auto;
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 16px 18px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.8125rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
         }}
+        /* Inline code */
         code {{
-            background: #f1f5f9; color: var(--text);
-            padding: 1px 5px; border-radius: 4px; font-size: 0.8125rem;
-            font-family: 'SF Mono', Monaco, monospace;
+            background: #eef2f7;
+            color: var(--code-text);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 0.8125rem;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Fira Code', monospace;
         }}
-        pre code {{ background: none; padding: 0; }}
+        /* CRITICAL: pre > code must inherit the light colors from pre */
+        pre code {{
+            background: none !important;
+            padding: 0 !important;
+            color: inherit !important;
+            font-size: inherit !important;
+        }}
 
         /* Timeline */
         .timeline {{
-            position: relative; padding-left: 24px;
+            position: relative; padding-left: 22px;
         }}
         .timeline::before {{
-            content: ''; position: absolute; left: 7px; top: 4px; bottom: 4px;
-            width: 2px; background: var(--border); border-radius: 1px;
+            content: ''; position: absolute; left: 6px; top: 4px; bottom: 4px;
+            width: 2px; background: #e5e7eb; border-radius: 1px;
         }}
         .timeline-item {{
-            position: relative; margin-bottom: 12px;
-            padding: 10px 14px; background: var(--bg); border-radius: 8px;
+            position: relative; margin-bottom: 10px;
+            padding: 10px 14px; background: #f9fafb; border-radius: 8px;
             border: 1px solid var(--border);
         }}
         .timeline-item::before {{
-            content: ''; position: absolute; left: -20px; top: 14px;
-            width: 10px; height: 10px; border-radius: 50%;
+            content: ''; position: absolute; left: -19px; top: 14px;
+            width: 9px; height: 9px; border-radius: 50%;
             background: var(--neutral); border: 2px solid var(--card);
         }}
         .timeline-item.tool-call::before {{ background: var(--info); }}
@@ -323,10 +343,10 @@ class ReportGenerator:
         .timeline-item.thought::before {{ background: var(--warning); }}
         .timeline-header {{
             display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 6px;
+            margin-bottom: 5px;
         }}
         .timeline-type {{
-            font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+            font-size: 0.625rem; font-weight: 600; text-transform: uppercase;
             letter-spacing: 0.5px; padding: 2px 8px; border-radius: 4px;
         }}
         .timeline-type.tool-call {{ background: var(--info-light); color: var(--info); }}
@@ -334,10 +354,16 @@ class ReportGenerator:
         .timeline-type.error {{ background: var(--fail-light); color: var(--fail); }}
         .timeline-type.thought {{ background: var(--warning-light); color: var(--warning); }}
         .timeline-type.response {{ background: #f3e8ff; color: #9333ea; }}
-        .timeline-step {{ font-size: 0.6875rem; color: var(--text-secondary); }}
-        .timeline-content {{ font-size: 0.8125rem; color: var(--text); white-space: pre-wrap; word-wrap: break-word; }}
+        .timeline-step {{ font-size: 0.625rem; color: var(--text-muted); }}
+        .timeline-content {{
+            font-size: 0.8125rem;
+            color: var(--text);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }}
         .timeline-tool {{
-            margin-top: 6px; padding: 8px; background: white;
+            margin-top: 6px; padding: 8px 10px; background: white;
             border-radius: 6px; border: 1px solid var(--border);
             font-size: 0.75rem;
         }}
@@ -352,34 +378,34 @@ class ReportGenerator:
             width: 100%; border-collapse: collapse; font-size: 0.8125rem;
         }}
         .tool-table th {{
-            text-align: left; padding: 10px 12px; background: #f1f5f9;
-            font-weight: 600; color: var(--text-secondary); font-size: 0.6875rem;
+            text-align: left; padding: 8px 10px; background: #f9fafb;
+            font-weight: 600; color: var(--text-muted); font-size: 0.625rem;
             text-transform: uppercase; letter-spacing: 0.5px;
             border-bottom: 1px solid var(--border);
         }}
-        .tool-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }}
+        .tool-table td {{ padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }}
         .tool-table tr:last-child td {{ border-bottom: none; }}
         .tool-table .status {{
             display: inline-flex; align-items: center; gap: 4px;
-            padding: 2px 8px; border-radius: 10px; font-size: 0.6875rem; font-weight: 600;
+            padding: 1px 7px; border-radius: 10px; font-size: 0.625rem; font-weight: 600;
         }}
         .tool-table .status.success {{ background: var(--success-light); color: var(--success); }}
         .tool-table .status.fail {{ background: var(--fail-light); color: var(--fail); }}
         .tool-table .status::before {{
-            content: ''; width: 6px; height: 6px; border-radius: 50%;
+            content: ''; width: 5px; height: 5px; border-radius: 50%;
         }}
         .tool-table .status.success::before {{ background: var(--success); }}
         .tool-table .status.fail::before {{ background: var(--fail); }}
-        .tool-table code {{ font-size: 0.75rem; }}
+        .tool-table code {{ font-size: 0.75rem; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }}
 
         /* File Operations */
         .file-ops {{
             display: flex; flex-wrap: wrap; gap: 8px;
         }}
         .file-op {{
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 6px 12px; border-radius: 6px; font-size: 0.8125rem;
-            background: var(--bg); border: 1px solid var(--border);
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 5px 10px; border-radius: 6px; font-size: 0.75rem;
+            background: #f9fafb; border: 1px solid var(--border);
         }}
         .file-op.read {{ border-left: 3px solid var(--info); }}
         .file-op.write {{ border-left: 3px solid var(--success); }}
@@ -388,8 +414,8 @@ class ReportGenerator:
 
         /* Alert Boxes */
         .alert {{
-            padding: 12px 16px; border-radius: 8px; margin: 12px 0;
-            font-size: 0.875rem;
+            padding: 10px 14px; border-radius: 8px; margin: 10px 0;
+            font-size: 0.8125rem;
         }}
         .alert.fail {{ background: var(--fail-light); border: 1px solid #fecaca; color: #991b1b; }}
         .alert.warning {{ background: var(--warning-light); border: 1px solid #fde68a; color: #92400e; }}
@@ -442,10 +468,10 @@ class ReportGenerator:
         <!-- Pass Rate -->
         <div class="pass-rate">
             <div class="pass-rate-chart">
-                <svg width="80" height="80" viewBox="0 0 80 80">
-                    <circle cx="40" cy="40" r="36" fill="none" stroke="#fecaca" stroke-width="6"/>
-                    <circle cx="40" cy="40" r="36" fill="none" stroke="#22c55e" stroke-width="6"
-                        stroke-dasharray="{226.2 * pass_rate / 100:.1f} 226.2"
+                <svg width="72" height="72" viewBox="0 0 72 72">
+                    <circle cx="36" cy="36" r="32" fill="none" stroke="#e5e7eb" stroke-width="5"/>
+                    <circle cx="36" cy="36" r="32" fill="none" stroke="#059669" stroke-width="5"
+                        stroke-dasharray="{201.1 * pass_rate / 100:.1f} 201.1"
                         stroke-linecap="round"/>
                 </svg>
                 <div class="pct">{pass_rate:.0f}%</div>
@@ -460,7 +486,7 @@ class ReportGenerator:
         </div>
 """
 
-        # 失败分类
+        # Failure distribution
         if failure_cats:
             html += """        <div class="failure-dist">
             <h2>🔍 Failure Distribution</h2>
@@ -473,7 +499,7 @@ class ReportGenerator:
         </div>
 """
 
-        # 测试列表
+        # Test list
         html += """        <div class="test-list">
             <div class="test-list-header">
                 <div></div>
@@ -497,8 +523,6 @@ class ReportGenerator:
         row.addEventListener('click', () => {
             const parent = row.closest('.test-row');
             const isExpanded = parent.classList.contains('expanded');
-            // Close all others (optional - accordion style)
-            // document.querySelectorAll('.test-row.expanded').forEach(el => el.classList.remove('expanded'));
             parent.classList.toggle('expanded', !isExpanded);
         });
     });
@@ -517,7 +541,6 @@ class ReportGenerator:
         status_class = "pass" if r.success else "fail"
         status_icon = "✓" if r.success else "✕"
 
-        # 从 execution_insights 提取指标
         insights = r.execution_insights or {}
         session = insights.get("session", {})
         tools = insights.get("tools", {})
@@ -529,7 +552,6 @@ class ReportGenerator:
         step_count = session.get("total_steps", r.steps_used or 0)
         latency = session.get("total_latency_ms", r.latency_ms or 0)
 
-        # 安全违规提示
         safety_html = ""
         if r.safety_violations:
             safety_html = f'<span class="safety-pill">⚠ {len(r.safety_violations)}</span>'
@@ -550,9 +572,7 @@ class ReportGenerator:
             <div class="test-detail">
 """
 
-        # === 详情面板 ===
-
-        # 1. 指标卡片
+        # Detail grid
         html += """                <div class="detail-grid">
 """
         html += f"""                    <div class="detail-card">
@@ -583,7 +603,7 @@ class ReportGenerator:
         html += """                </div>
 """
 
-        # 2. 失败原因 / 安全违规
+        # Failure / Safety alerts
         if not r.success and r.failure_reason:
             html += f"""                <div class="alert fail">
                     <strong>Failure:</strong> {r.failure_reason}
@@ -598,7 +618,7 @@ class ReportGenerator:
                 </div>
 """
 
-        # 3. Agent Output
+        # Agent Output
         if r.agent_output:
             html += """                <div class="section-title">📝 Agent Output</div>
                 <pre><code>"""
@@ -606,12 +626,11 @@ class ReportGenerator:
             html += """</code></pre>
 """
 
-        # 4. 执行过程时间线（从 agent_result.steps）
+        # Execution Timeline
         steps = []
         if r.agent_result and r.agent_result.steps:
             steps = r.agent_result.steps
         elif r.trace:
-            # Fallback: 从 trace 重建
             for t in r.trace:
                 step_type = t.get("type", "unknown")
                 if step_type == "tool_call":
@@ -681,7 +700,7 @@ class ReportGenerator:
             html += """                </div>
 """
 
-        # 5. 工具调用表格（从 execution_insights.tools.timeline）
+        # Tool Calls table
         timeline = tools.get("timeline", [])
         if timeline:
             html += """                <div class="section-title">🛠️ Tool Calls</div>
@@ -708,7 +727,7 @@ class ReportGenerator:
             html += """                </table>
 """
 
-        # 6. 文件操作
+        # File operations
         has_files = files.get("read") or files.get("written") or files.get("edited") or files.get("directories_created")
         if has_files:
             html += """                <div class="section-title">📁 File Operations</div>
@@ -729,12 +748,12 @@ class ReportGenerator:
             html += """                </div>
 """
 
-        # 7. 失败链
+        # Failure chain
         if failures.get("error_count", 0) > 0:
             html += f"""                <div class="section-title">⚠️ Failure Chain</div>
                 <div class="alert fail">
                     <strong>Total Errors:</strong> {failures.get('error_count')} |
-                    <strong>Recovery Detected:</strong> {'✅ Yes' if failures.get('recovery_detected') else '❌ No'}
+                    <strong>Recovery Detected:</strong> {'Yes' if failures.get('recovery_detected') else 'No'}
                 </div>
 """
             for fc in failures.get("failure_chain", []):
@@ -749,7 +768,6 @@ class ReportGenerator:
         return html
 
     def _escape_html(self, text: str) -> str:
-        """转义 HTML 特殊字符"""
         if not isinstance(text, str):
             text = str(text)
         return (text
@@ -766,7 +784,6 @@ class ReportGenerator:
         agent_version: str,
         output_path: Optional[str] = None,
     ) -> str:
-        """生成 JSON 报告"""
         if output_path is None:
             output_path = self.report_dir / f"report_{run_id}.json"
         else:
@@ -800,7 +817,6 @@ class ReportGenerator:
         agent_version: str,
         output_path: Optional[str] = None,
     ) -> str:
-        """生成 Markdown 报告"""
         if output_path is None:
             output_path = self.report_dir / f"report_{run_id}.md"
         else:

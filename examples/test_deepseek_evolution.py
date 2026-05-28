@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aegistest import SessionLake
 from aegistest.session.session_storage import SessionStorage, SessionEntry
-from aegistest.llm import DeepSeekClient
+from aegistest.llm import OpenAIClient
 
 
 def test_deepseek_online_review():
@@ -21,8 +21,12 @@ def test_deepseek_online_review():
 
     # 1. 初始化 DeepSeek client（自动读取 .aiko/settings.json）
     # Use deepseek-chat (non-reasoning model) for tool_call support
-    llm = DeepSeekClient(model="deepseek-chat")
-    print(f"  [Config] model={llm.model}, base_url={llm.base_url}")
+    llm = OpenAIClient(
+        api_key="sk-82f51fb2311740d28ac6dccc858b9088",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+    )
+    print(f"  [Config] model={llm.model}, base_url={llm._api_base}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         lake = SessionLake(
@@ -71,7 +75,11 @@ def test_deepseek_online_review():
 def test_deepseek_curator_consolidation():
     print("\n[Test] DeepSeek LLM Curator Consolidation")
 
-    llm = DeepSeekClient()
+    llm = OpenAIClient(
+        api_key="sk-82f51fb2311740d28ac6dccc858b9088",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         lake = SessionLake(

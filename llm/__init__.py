@@ -1,5 +1,5 @@
 """LLM Client for AegisTest self-evolution."""
 
-from .client import LLMClient, DeepSeekClient, MockLLMClient
+from .client import LLMClient, OpenAIClient, AnthropicClient, MockLLMClient
 
-__all__ = ["LLMClient", "DeepSeekClient", "MockLLMClient"]
+__all__ = ["LLMClient", "OpenAIClient", "AnthropicClient", "MockLLMClient"]
